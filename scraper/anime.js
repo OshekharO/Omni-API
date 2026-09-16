@@ -39,23 +39,17 @@ async function getAnimeEpisodes(animeId) {
   };
 
   try {
-    let epRes, streamRes, animeRes;
-    try {
-      epRes = await axios.get(`https://kitsu.io/api/edge/anime/${animeId}/episodes?page[limit]=20`, { headers, timeout: 10000 });
+    // ⚡ BOLT OPTIMIZATION: Concurrently fetch episodes, streaming links, and anime details via Promise.allSettled.
+    // Executing independent network requests in parallel reduces latency from sum(round_trip_times) to max(round_trip_times).
+    const [epSettled, streamSettled, animeSettled] = await Promise.allSettled([
+      axios.get(`https://kitsu.io/api/edge/anime/${animeId}/episodes?page[limit]=20`, { headers, timeout: 10000 }),
+      axios.get(`https://kitsu.io/api/edge/anime/${animeId}/streaming-links`, { headers, timeout: 10000 }),
+      axios.get(`https://kitsu.io/api/edge/anime/${animeId}`, { headers, timeout: 10000 })
+    ]);
 
-    } catch {
-      epRes = { data: { data: [] } };
-    }
-    try {
-      streamRes = await axios.get(`https://kitsu.io/api/edge/anime/${animeId}/streaming-links`, { headers, timeout: 10000 });
-    } catch {
-      streamRes = { data: { data: [] } };
-    }
-    try {
-      animeRes = await axios.get(`https://kitsu.io/api/edge/anime/${animeId}`, { headers, timeout: 10000 });
-    } catch {
-      animeRes = { data: { data: null } };
-    }
+    const epRes = epSettled.status === 'fulfilled' ? epSettled.value : { data: { data: [] } };
+    const streamRes = streamSettled.status === 'fulfilled' ? streamSettled.value : { data: { data: [] } };
+    const animeRes = animeSettled.status === 'fulfilled' ? animeSettled.value : { data: { data: null } };
 
     const animeTitle = animeRes.data?.data?.attributes?.canonicalTitle || 'Anime';
     const streamingLinks = (streamRes.data?.data || []).map(item => item.attributes?.url).filter(Boolean);
