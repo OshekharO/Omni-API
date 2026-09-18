@@ -3,7 +3,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
 const axios = require('axios');
-// Import your scraper function
+// Import scraper functions
 const { pirateBay } = require('./scraper/pirateBay');
 const { torrent1337x } = require('./scraper/1337x');
 const { nyaaSI } = require('./scraper/nyaaSI');
@@ -22,6 +22,8 @@ const app = express();
 const port = 3000;
 
 app.use(cors());
+// ⚡ BOLT FIX: Mount express.json() middleware at top level before route handlers so POST requests parse body JSON correctly
+app.use(express.json());
 
 // SEO: robots.txt route
 app.get('/robots.txt', (req, res) => {
@@ -772,8 +774,6 @@ app.get('/api/anime/episodes/:id', async (req, res) => {
     res.status(500).json({ message: 'An error occurred while fetching anime episodes.' });
   }
 });
-
-app.use(express.json());
 
 app.all('/api/youtube/download', async (req, res) => {
   const videoUrl = req.body?.url || req.query?.url;

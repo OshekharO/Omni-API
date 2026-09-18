@@ -1,7 +1,6 @@
 const cheerio = require('cheerio');
 const axios = require('axios');
 
-
 const MIRRORS = [
     'https://nyaa.si',
     'https://nyaa.land',
@@ -10,38 +9,37 @@ const MIRRORS = [
 
 async function nyaaSI(query, page = '1') {
     let torrents = [];
-    let html = null;
-    let domain = '';
 
-    for (const mirror of MIRRORS) {
-        const url = mirror + '/?f=0&c=0_0&q=' + query + '&p=' + page;
-        try {
-            const res = await axios.get(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                },
-                timeout: 8000
-            });
-            if (res.status === 200 && res.data) {
-                html = res.data;
-                domain = mirror;
-                break;
-            }
-        } catch {
-            // try next
+    // ⚡ BOLT OPTIMIZATION: Race Nyaa mirrors concurrently using Promise.any
+    // Requesting all mirrors in parallel avoids sequential timeouts/latency.
+    const mirrorPromises = MIRRORS.map(async (mirror) => {
+        const url = mirror + '/?f=0&c=0_0&q=' + encodeURIComponent(query) + '&p=' + encodeURIComponent(page);
+        const res = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            timeout: 8000
+        });
+        if (res.status === 200 && res.data) {
+            return { html: res.data, domain: mirror };
         }
-    }
+        throw new Error(`Mirror ${mirror} failed`);
+    });
 
-    if (!html) {
+    let result;
+    try {
+        result = await Promise.any(mirrorPromises);
+    } catch {
         return [];
     }
+
+    const { html, domain } = result;
     const regex = /.comments/gi;
     const nameRegex = /[a-zA-Z\W].+/g;
 
     const $ = cheerio.load(html);
 
     $('tbody tr').each((_, element) => {
-
         try {
             const data = {};
             const td = $(element).children('td');
@@ -63,7 +61,6 @@ async function nyaaSI(query, page = '1') {
         } catch {
             // skip rows that fail to parse
         }
-
     });
 
     return torrents;

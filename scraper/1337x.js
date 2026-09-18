@@ -87,20 +87,25 @@ async function torrent1337x(query = '', page = '1') {
     let $;
     let baseUrl;
 
-    for (const mirror of MIRRORS) {
+    // ⚡ BOLT OPTIMIZATION: Race all mirrors concurrently using Promise.any
+    // Executing mirror checks in parallel reduces latency from sum(mirror_times) to min(mirror_times)
+    const mirrorPromises = MIRRORS.map(async (mirror) => {
         const url = `${mirror}${searchPath}`;
-        try {
-            const res = await axios.get(url, axiosOpts);
-            const doc = cheerio.load(res.data);
-            const rows = doc('td.name');
-            if (!isBlocked(doc, res.status) && rows.length > 0) {
-                $ = doc;
-                baseUrl = mirror;
-                break;
-            }
-        } catch (err) {
-            console.error(`1337x mirror ${mirror} failed:`, err.message);
+        const res = await axios.get(url, axiosOpts);
+        const doc = cheerio.load(res.data);
+        const rows = doc('td.name');
+        if (!isBlocked(doc, res.status) && rows.length > 0) {
+            return { doc, mirror };
         }
+        throw new Error(`Mirror ${mirror} failed or returned no results`);
+    });
+
+    try {
+        const result = await Promise.any(mirrorPromises);
+        $ = result.doc;
+        baseUrl = result.mirror;
+    } catch (err) {
+        console.error('1337x mirrors failed, trying D1 API fallback:', err.message);
     }
 
     if (!$) {
@@ -141,7 +146,8 @@ async function torrent1337x(query = '', page = '1') {
         'leechers': 'Leechers'
     };
 
-    await Promise.all(links.map(async (torrentPath) => {
+    // ⚡ BOLT OPTIMIZATION: Concurrently fetch detail pages using Promise.allSettled
+    await Promise.allSettled(links.map(async (torrentPath) => {
         const data = {};
         try {
             const { html } = await getPageHtml(torrentPath, baseUrl);
